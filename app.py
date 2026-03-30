@@ -64,19 +64,27 @@ def rebuild_bloom():
 
     print("[INFO] Rebuilding Bloom filter...")
 
-    # Delete old filter
-    rb.delete(BLOOM_KEY)
+    new_key = BLOOM_KEY + "_new"
+
+    # Delete temp key if exists
+    try:
+        rb.delete(new_key)
+    except:
+        pass
 
     # Create new filter
-    rb.bfCreate("phishtank_bloom", 0.001, max(len(urls), 100000))
+    rb.bfCreate(new_key, ERROR_RATE, max(len(urls), 100000))
 
-    # Batch insert (IMPORTANT for speed)
+    # Batch insert
     pipe = rb.pipeline()
     for url in urls:
-        pipe.bfAdd(BLOOM_KEY, url)
+        pipe.bfAdd(new_key, url)
     pipe.execute()
 
-    print("[INFO] Bloom filter updated")
+    # Atomic swap
+    rb.rename(new_key, BLOOM_KEY)
+
+    print("[INFO] Bloom filter updated (zero downtime)")
 
     return len(urls)
 
@@ -86,6 +94,8 @@ def rebuild_bloom():
 
 @app.route("/update_phishtank", methods=["GET"])
 def update():
+    if request.args.get("key") != os.environ.get("CRON_SECRET"):
+        return jsonify({"error": "unauthorized"}), 403
     try:
         count = rebuild_bloom()
         return jsonify({"success": True, "count": count})
@@ -94,24 +104,6 @@ def update():
         print("[ERROR] Exception in /update_phishtank:")
         traceback.print_exc()
         return jsonify({"success": False, "error": str(e)}), 500
-
-
-@app.route("/check_url", methods=["GET"])
-def check_url():
-    url = request.args.get("url")
-    if not url:
-        return jsonify({"error": "Missing url"}), 400
-
-    try:
-        exists = rb.bfExists(BLOOM_KEY, url)
-        return jsonify({
-            "url": url,
-            "possibly_phishing": bool(exists)
-        })
-    except Exception as e:
-        print("[ERROR] Exception in /check_url:")
-        traceback.print_exc()
-        return jsonify({"error": str(e)}), 500
 
 
 @app.route("/")
