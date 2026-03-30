@@ -8,6 +8,8 @@ from redis import Redis
 from redisbloom.client import Client as RedisBloom
 from dotenv import load_dotenv
 import traceback
+from apscheduler.schedulers.background import BackgroundScheduler
+from datetime import timezone
 
 load_dotenv()
 
@@ -109,6 +111,19 @@ def update():
 @app.route("/")
 def home():
     return jsonify({"message": "PhishTank RedisBloom API running"})
+
+scheduler = BackgroundScheduler(timezone=timezone.utc)
+
+def scheduled_job():
+    print("[SCHEDULER] Running PhishTank update...")
+    try:
+        rebuild_bloom()
+    except Exception as e:
+        print("[SCHEDULER ERROR]", e)
+
+# Run at 12 AM and 12 PM UTC
+scheduler.add_job(scheduled_job, 'cron', hour='0,12', minute=0)
+scheduler.start()
 
 
 if __name__ == "__main__":
